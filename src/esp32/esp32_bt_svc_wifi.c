@@ -169,7 +169,6 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
       if (p->handle == mos_wifi_ctrl_ah) {
         if (p->value[0] == '0' && svc_data.state == BT_WIFI_STATE_SCANNING) {
           svc_data.state = BT_WIFI_STATE_IDLE;
-          esp_wifi_scan_stop();
         } else if (p->value[0] == '0' &&
                    svc_data.state == BT_WIFI_STATE_RESULTS) {
           svc_data.state = BT_WIFI_STATE_IDLE;
