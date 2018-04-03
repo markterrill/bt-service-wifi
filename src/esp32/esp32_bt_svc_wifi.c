@@ -11,7 +11,7 @@
 static const esp_bt_uuid_t mos_wifi_svc_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_SVC_ID_, 776f37fa-371b-11e8-b467-0ed5f89f718b */
+    /* 776f37fa-371b-11e8-b467-0ed5f89f718b */
     0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
     0xfa, 0x37, 0x6f, 0x77,
   },
@@ -20,7 +20,7 @@ static const esp_bt_uuid_t mos_wifi_svc_uuid = {
 static const esp_bt_uuid_t mos_wifi_ctrl_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_ctrl__0, 776f3cbe-371b-11e8-b467-0ed5f89f718b */
+    /* 776f3cbe-371b-11e8-b467-0ed5f89f718b */
     0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
     0xbe, 0x3c, 0x6f, 0x77,
   },
@@ -31,7 +31,7 @@ static uint16_t mos_wifi_ctrl_cc_ah;
 static const esp_bt_uuid_t mos_wifi_data_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_data__1, 776f3f16-371b-11e8-b467-0ed5f89f718b */
+    /* 776f3f16-371b-11e8-b467-0ed5f89f718b */
     0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
     0x16, 0x3f, 0x6f, 0x77,
   },
