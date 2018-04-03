@@ -106,6 +106,11 @@ static void wifi_scan_cb(int num_res, struct mgos_wifi_scan_result *res,
       wifi.scan_res = NULL;
     }
     wifi.state = WIFI_STATE_IDLE;
+
+    if (sd->notify) {
+      esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
+                                  mos_wifi_ctrl_ah, 1, (uint8_t *) "0", false);
+    }
     return;
   }
 
@@ -118,6 +123,11 @@ static void wifi_scan_cb(int num_res, struct mgos_wifi_scan_result *res,
 
   if (wifi.scan_res == NULL) {
     wifi.state = WIFI_STATE_IDLE;
+    
+    if (sd->notify) {
+      esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
+                                  mos_wifi_ctrl_ah, 1, (uint8_t *) "0", false);
+    }
     return;
   }
 
