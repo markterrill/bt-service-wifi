@@ -1,0 +1,25 @@
+author: Jeff Kent <jeff@jkent.net>
+type: lib
+description: WiFi scanning over Bluetooth GATT service support
+version: 1.0
+
+sources:
+  - src
+
+filesystem:
+  - fs
+
+config_schema:
+  - ["bt.wifi_svc_enable", "b", true, {title: "Enable the wifi service"}]
+
+libs:
+  - origin: https://github.com/mongoose-os-libs/bt-common
+  - origin: https://github.com/mongoose-os-libs/wifi
+
+
+tags:
+  - bt
+  - bluetooth
+  - c
+
+manifest_version: 2017-09-29
