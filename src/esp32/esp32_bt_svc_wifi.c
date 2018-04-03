@@ -11,33 +11,38 @@
 static const esp_bt_uuid_t mos_wifi_svc_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_SVC_ID_, 6977cc94-731c-4d33-8498-4a8842c3d224 */
-    0x24, 0xd2, 0xc3, 0x42, 0x88, 0x4a, 0x98, 0x84, 0x33, 0x4d, 0x1c, 0x73,
-    0x94, 0xcc, 0x77, 0x69,
-  }
+    /* _mOS_WIFI_SVC_ID_, 776f37fa-371b-11e8-b467-0ed5f89f718b */
+    0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
+    0xfa, 0x37, 0x6f, 0x77,
+  },
 };
 
 static const esp_bt_uuid_t mos_wifi_ctrl_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_ctrl__0, d9e67e00-164d-4577-a8fb-d778406e06db */
-    0xdb, 0x06, 0x6e, 0x40, 0x78, 0xd7, 0xfb, 0xa8, 0x77, 0x45, 0x4d, 0x16,
-    0x00, 0x7e, 0xe6, 0xd9,
-  }
+    /* _mOS_WIFI_ctrl__0, 776f3cbe-371b-11e8-b467-0ed5f89f718b */
+    0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
+    0xbe, 0x3c, 0x6f, 0x77,
+  },
 };
 static uint16_t mos_wifi_ctrl_ah;
+static uint16_t mos_wifi_ctrl_cc_ah;
 
 static const esp_bt_uuid_t mos_wifi_data_uuid = {
   .len = ESP_UUID_LEN_128,
   .uuid.uuid128 = {
-    /* _mOS_WIFI_data__1, 8cb22813-75f0-4f03-967f-0c289543a82d */
-    0x2d, 0xa8, 0x43, 0x95, 0x28, 0x0c, 0x7f, 0x96, 0x03, 0x4f, 0x0f, 0x75,
-    0x13, 0x28, 0xb2, 0x8c,
-  }
+    /* _mOS_WIFI_data__1, 776f3f16-371b-11e8-b467-0ed5f89f718b */
+    0x8b, 0x71, 0x9f, 0xf8, 0xd5, 0x0e, 0x67, 0xb4, 0xe8, 0x11, 0x1b, 0x37,
+    0x16, 0x3f, 0x6f, 0x77,
+  },
 };
 static uint16_t mos_wifi_data_ah;
 
-const esp_gatts_attr_db_t mos_wifi_gatt_db[5] = {
+static const uint8_t char_prop_rwn = ESP_GATT_CHAR_PROP_BIT_WRITE |
+                                     ESP_GATT_CHAR_PROP_BIT_READ |
+                                     ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+
+const esp_gatts_attr_db_t mos_wifi_gatt_db[6] = {
   {
     .attr_control = {.auto_rsp = ESP_GATT_AUTO_RSP},
     .att_desc = {
@@ -53,9 +58,12 @@ const esp_gatts_attr_db_t mos_wifi_gatt_db[5] = {
   /* ctrl */ 
   {{ESP_GATT_AUTO_RSP},
    {ESP_UUID_LEN_16, (uint8_t *) &char_decl_uuid, ESP_GATT_PERM_READ, 1, 1,
-    (uint8_t *) &char_prop_read_write}},
+    (uint8_t *) &char_prop_rwn}},
   {{ESP_GATT_RSP_BY_APP},
    {ESP_UUID_LEN_128, (uint8_t *) mos_wifi_ctrl_uuid.uuid.uuid128,
+    ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, 0, 0, NULL}},
+  {{ESP_GATT_RSP_BY_APP},
+   {ESP_UUID_LEN_16, (uint8_t *) &char_client_config_uuid,
     ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, 0, 0, NULL}},
 
   /* data */ 
@@ -67,52 +75,60 @@ const esp_gatts_attr_db_t mos_wifi_gatt_db[5] = {
     ESP_GATT_PERM_READ, 0, 0, NULL}},
 };
 
-enum bt_wifi_svc_state {
-  BT_WIFI_STATE_IDLE = 0,
-  BT_WIFI_STATE_SCANNING = 1,
-  BT_WIFI_STATE_RESULTS = 2,
+struct bt_wifi_svc_data {
+  bool notify;
+  struct esp32_bt_connection *bc;
 };
 
-struct bt_wifi_svc_data_s {
-  enum bt_wifi_svc_state state;
-  int num_res;
-  struct mgos_wifi_scan_result *res;
-  int idx;
+enum wifi_state {
+  WIFI_STATE_IDLE = 0,
+  WIFI_STATE_SCANNING = 1,
+  WIFI_STATE_RESULTS = 2,
 };
-static struct bt_wifi_svc_data_s svc_data;
+
+struct wifi_data {
+  enum wifi_state state;
+  int scan_res_count;
+  struct mgos_wifi_scan_result *scan_res;
+};
+static struct wifi_data wifi = {0};
 
 static void wifi_scan_cb(int num_res, struct mgos_wifi_scan_result *res,
                          void *arg)
 {
-  if (svc_data.state != BT_WIFI_STATE_SCANNING) return;
+  if (wifi.state != WIFI_STATE_SCANNING) return;
+
+  struct bt_wifi_svc_data *sd = (struct bt_wifi_svc_data *) arg;
 
   if (num_res <= 0) {
-    if (svc_data.res) {
-      free(svc_data.res);
-      svc_data.res = NULL;
+    if (wifi.scan_res) {
+      free(wifi.scan_res);
+      wifi.scan_res = NULL;
     }
-    svc_data.state = BT_WIFI_STATE_IDLE;
+    wifi.state = WIFI_STATE_IDLE;
     return;
   }
 
-  if (svc_data.res) {
-    svc_data.res = realloc(svc_data.res,
+  if (wifi.scan_res) {
+    wifi.scan_res = realloc(wifi.scan_res,
                             sizeof(struct mgos_wifi_scan_result) * num_res);
   } else {
-    svc_data.res = malloc(sizeof(struct mgos_wifi_scan_result) * num_res);
+    wifi.scan_res = malloc(sizeof(struct mgos_wifi_scan_result) * num_res);
   }
 
-  if (svc_data.res == NULL) {
-    svc_data.state = BT_WIFI_STATE_IDLE;
+  if (wifi.scan_res == NULL) {
+    wifi.state = WIFI_STATE_IDLE;
     return;
   }
 
-  memcpy(svc_data.res, res, sizeof(struct mgos_wifi_scan_result) * num_res);
-  svc_data.num_res = num_res;
-  svc_data.state = BT_WIFI_STATE_RESULTS;
-  svc_data.idx = 0;
+  memcpy(wifi.scan_res, res, sizeof(struct mgos_wifi_scan_result) * num_res);
+  wifi.scan_res_count = num_res;
+  wifi.state = WIFI_STATE_RESULTS;
 
-  (void) arg;
+  if (sd->notify) {
+    esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
+                                mos_wifi_ctrl_ah, 1, (uint8_t *) "2", false);
+  }
 }
 
 static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
@@ -120,35 +136,42 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
                                 esp_ble_gatts_cb_param_t *ep)
 {
   bool ret = false;
+  struct bt_wifi_svc_data *sd = NULL;
   struct esp32_bt_connection *bc = NULL;
   if (bs != NULL) { /* CREAT_ATTR_TAB is not associated with any session. */
     bc = bs->bc;
+    sd = (struct bt_wifi_svc_data *) bs->user_data;
   }
 
   switch (ev) {
     case ESP_GATTS_CREAT_ATTR_TAB_EVT: {
       const struct gatts_add_attr_tab_evt_param *p = &ep->add_attr_tab;
       mos_wifi_ctrl_ah = p->handles[2];
-      mos_wifi_data_ah = p->handles[4];
+      mos_wifi_ctrl_cc_ah = p->handles[3];
+      mos_wifi_data_ah = p->handles[5];
+      break;
+    }
+    case ESP_GATTS_CONNECT_EVT: {
+      sd = (struct bt_wifi_svc_data *) calloc(1, sizeof(*sd));
+      if (sd == NULL) break;
+      sd->bc = bs->bc;
+      bs->user_data = sd;
       break;
     }
     case ESP_GATTS_READ_EVT: {
       const struct gatts_read_evt_param *p = &ep->read;
-      if (svc_data.state != BT_WIFI_STATE_RESULTS &&
-          p->handle == mos_wifi_data_ah)
-        break;
-
       if (p->handle == mos_wifi_ctrl_ah) {
         esp_gatt_rsp_t rsp = {.attr_value = {.handle = mos_wifi_ctrl_ah,
                                              .offset = 0,
                                              .len = 1,
-                                             .value = {'0' + svc_data.state}}};
+                                             .value = {'0' + wifi.state}}};
         esp_ble_gatts_send_response(bc->gatt_if, bc->conn_id, p->trans_id,
                                     ESP_GATT_OK, &rsp);
         ret = true;
       } else if (p->handle == mos_wifi_data_ah) {
-        if (!svc_data.res) break;
-        uint16_t len = sizeof(struct mgos_wifi_scan_result) * svc_data.num_res;
+        if (wifi.state != WIFI_STATE_RESULTS) break;
+        if (wifi.scan_res == NULL) break;
+        uint16_t len = sizeof(struct mgos_wifi_scan_result) * wifi.scan_res_count;
         if (p->offset > len) break;
         uint16_t to_send = bc->mtu - 1;
         if (len - p->offset < to_send) {
@@ -158,7 +181,7 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
                                              .offset = p->offset,
                                              .len = to_send}};
         memcpy(rsp.attr_value.value,
-               ((unsigned char *)svc_data.res) + p->offset, to_send);
+               ((uint8_t *)wifi.scan_res) + p->offset, to_send);
         esp_ble_gatts_send_response(bc->gatt_if, bc->conn_id, p->trans_id,
                                     ESP_GATT_OK, &rsp);
         ret = true;
@@ -166,31 +189,36 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
     }
     case ESP_GATTS_WRITE_EVT: {
       const struct gatts_write_evt_param *p = &ep->write;
-      if (p->handle == mos_wifi_ctrl_ah) {
-        if (p->value[0] == '0' && svc_data.state == BT_WIFI_STATE_SCANNING) {
-          svc_data.state = BT_WIFI_STATE_IDLE;
-        } else if (p->value[0] == '0' &&
-                   svc_data.state == BT_WIFI_STATE_RESULTS) {
-          svc_data.state = BT_WIFI_STATE_IDLE;
-          if (svc_data.res) {
-            free(svc_data.res);
-            svc_data.res = NULL;
+      if (p->handle == mos_wifi_ctrl_ah && p->len == 1) {
+        if (p->value[0] == '0') {
+          if (wifi.scan_res) {
+            free(wifi.scan_res);
+            wifi.scan_res = NULL;
           }
-        } else if (p->value[0] == '1' &&
-                   svc_data.state == BT_WIFI_STATE_IDLE) {
-          svc_data.state = BT_WIFI_STATE_SCANNING;
-          mgos_wifi_scan(wifi_scan_cb, NULL);
-        } else if (p->value[0] == '1' &&
-                   svc_data.state == BT_WIFI_STATE_RESULTS) {
-          if (svc_data.res) {
-            free(svc_data.res);
-            svc_data.res = NULL;
+          wifi.state = WIFI_STATE_IDLE;
+          ret = true;
+        } else if (p->value[0] == '1') {
+          if (wifi.scan_res) {
+            free(wifi.scan_res);
+            wifi.scan_res = NULL;
           }
-          svc_data.state = BT_WIFI_STATE_SCANNING;
-          mgos_wifi_scan(wifi_scan_cb, NULL);
+          mgos_wifi_scan(wifi_scan_cb, sd);
+          wifi.state = WIFI_STATE_SCANNING;
+          ret = true;
         }
-        ret = true;
+      } else if (p->handle == mos_wifi_ctrl_cc_ah && p->len == 2) {
+        uint16_t value = p->value[1] << 8 | p->value[0];
+        sd->notify = !!(value & 0x01);
       }
+      break;
+    }
+    case ESP_GATTS_DISCONNECT_EVT: {
+      if (sd != NULL) {
+        free(sd);
+        bs->user_data = NULL;
+      }
+      wifi.state = WIFI_STATE_IDLE;
+      break;
     }
     default:
       break;
@@ -200,7 +228,6 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
 
 bool mgos_bt_service_wifi_init(void) {
   if (mgos_sys_config_get_bt_wifi_svc_enable()) {
-    memset(&svc_data, 0, sizeof(svc_data));
     mgos_bt_gatts_register_service(mos_wifi_gatt_db,
                                    ARRAY_SIZE(mos_wifi_gatt_db),
                                    mgos_bt_svc_wifi_ev);
