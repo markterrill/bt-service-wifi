@@ -18,11 +18,36 @@ The service defines 2 characteristics (attributes):
     * `0` - Stop/Idle
     * `1` - Scan/Scanning
     * `2` - Results ready
-  * `776f3f16-371b-11e8-b467-0ed5f89f718b` (data) - a read-only attribute for reading results.  Data is an array of the `mgos_wifi_scan_result` struct.
+  * `776f3f16-371b-11e8-b467-0ed5f89f718b` (data) - a read-only attribute for reading results.  Data is in json format.
 
 ## Example - scanning for networks
   * Subscribe to notifications on the `ctrl` attribute
   * Write a `1` to the `ctrl` attribute
   * Wait for a notification
-    * If `0` there are no results
-    * If `2` read `data` attribute
+  * Read `data` attribute
+    * Example (prettyfied) data:
+      ```json
+      [
+        {
+          "ssid": "Beta",
+          "bssid": "70:8b:cd:c9:c4:90",
+          "auth_mode": "wpa/wpa2-psk",
+          "channel": 11,
+          "rssi": -85
+        },
+        {
+          "ssid": "Kent-guest",
+          "bssid": "22:cf:30:ce:5c:ea",
+          "auth_mode": "wpa2-psk",
+          "channel": 1,
+          "rssi": -88
+        },
+        {
+          "ssid": "Kent",
+          "bssid": "22:cf:30:ce:5c:e9",
+          "auth_mode":"wpa2-psk",
+          "channel": 1,
+          "rssi": -90
+        }
+      ]
+      ```

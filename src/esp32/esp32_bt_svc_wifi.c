@@ -6,6 +6,7 @@
 #include "mgos_wifi.h"
 
 #include "esp32_bt_gatts.h"
+#include "rom/ets_sys.h"
 
 /* Note: UUIDs below ar in reverse, because that's how the ESP wants them. */
 static const esp_bt_uuid_t mos_wifi_svc_uuid = {
@@ -88,8 +89,7 @@ enum wifi_state {
 
 struct wifi_data {
   enum wifi_state state;
-  int scan_res_count;
-  struct mgos_wifi_scan_result *scan_res;
+  struct mbuf results;
 };
 static struct wifi_data wifi = {0};
 
@@ -100,41 +100,50 @@ static void wifi_scan_cb(int num_res, struct mgos_wifi_scan_result *res,
 
   struct bt_wifi_svc_data *sd = (struct bt_wifi_svc_data *) arg;
 
-  if (num_res <= 0) {
-    if (wifi.scan_res) {
-      free(wifi.scan_res);
-      wifi.scan_res = NULL;
+  mbuf_append(&wifi.results, "[", 1);
+  for (int i = 0; i < num_res; i++, res++) {
+    char buf[18];
+    mbuf_append(&wifi.results, "{\"ssid\":\"", 9);
+    mbuf_append(&wifi.results, res->ssid, strlen(res->ssid));
+    mbuf_append(&wifi.results, "\",\"bssid\":\"", 11);
+    snprintf(buf, sizeof(buf), MACSTR, MAC2STR(res->bssid));
+    mbuf_append(&wifi.results, buf, strlen(buf));
+    mbuf_append(&wifi.results, "\",\"auth_mode\":\"", 15);
+    switch (res->auth_mode) {
+      case MGOS_WIFI_AUTH_MODE_OPEN:
+        mbuf_append(&wifi.results, "open", 4);
+        break;
+      case MGOS_WIFI_AUTH_MODE_WEP:
+        mbuf_append(&wifi.results, "wep", 3);
+        break;
+      case MGOS_WIFI_AUTH_MODE_WPA_PSK:
+        mbuf_append(&wifi.results, "wpa-psk", 7);
+        break;
+      case MGOS_WIFI_AUTH_MODE_WPA2_PSK:
+        mbuf_append(&wifi.results, "wpa2-psk", 8);
+        break;
+      case MGOS_WIFI_AUTH_MODE_WPA_WPA2_PSK:
+        mbuf_append(&wifi.results, "wpa/wpa2-psk", 12);
+        break;
+      case MGOS_WIFI_AUTH_MODE_WPA2_ENTERPRISE:
+        mbuf_append(&wifi.results, "wpa-enterprise", 14);
+        break;
+      default:
+        break;
     }
-    wifi.state = WIFI_STATE_IDLE;
-
-    if (sd->notify) {
-      esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
-                                  mos_wifi_ctrl_ah, 1, (uint8_t *) "0", false);
+    mbuf_append(&wifi.results, "\",\"channel\":", 12);
+    snprintf(buf, sizeof(buf), "%d", res->channel);
+    mbuf_append(&wifi.results, buf, strlen(buf));
+    mbuf_append(&wifi.results, ",\"rssi\":", 8);
+    snprintf(buf, sizeof(buf), "%d}", res->rssi);
+    mbuf_append(&wifi.results, buf, strlen(buf));
+    if (i + 1 < num_res) {
+        mbuf_append(&wifi.results, ",", 1);
     }
-    return;
   }
+  mbuf_append(&wifi.results, "]", 1);
 
-  if (wifi.scan_res) {
-    wifi.scan_res = realloc(wifi.scan_res,
-                            sizeof(struct mgos_wifi_scan_result) * num_res);
-  } else {
-    wifi.scan_res = malloc(sizeof(struct mgos_wifi_scan_result) * num_res);
-  }
-
-  if (wifi.scan_res == NULL) {
-    wifi.state = WIFI_STATE_IDLE;
-    
-    if (sd->notify) {
-      esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
-                                  mos_wifi_ctrl_ah, 1, (uint8_t *) "0", false);
-    }
-    return;
-  }
-
-  memcpy(wifi.scan_res, res, sizeof(struct mgos_wifi_scan_result) * num_res);
-  wifi.scan_res_count = num_res;
   wifi.state = WIFI_STATE_RESULTS;
-
   if (sd->notify) {
     esp_ble_gatts_send_indicate(sd->bc->gatt_if, sd->bc->conn_id,
                                 mos_wifi_ctrl_ah, 1, (uint8_t *) "2", false);
@@ -180,18 +189,16 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
         ret = true;
       } else if (p->handle == mos_wifi_data_ah) {
         if (wifi.state != WIFI_STATE_RESULTS) break;
-        if (wifi.scan_res == NULL) break;
-        uint16_t len = sizeof(struct mgos_wifi_scan_result) * wifi.scan_res_count;
-        if (p->offset > len) break;
+        if (p->offset > wifi.results.len) break;
         uint16_t to_send = bc->mtu - 1;
-        if (len - p->offset < to_send) {
-          to_send = len - p->offset;
+        if (wifi.results.len - p->offset < to_send) {
+          to_send = wifi.results.len - p->offset;
         }
         esp_gatt_rsp_t rsp = {.attr_value = {.handle = mos_wifi_data_ah,
                                              .offset = p->offset,
                                              .len = to_send}};
-        memcpy(rsp.attr_value.value,
-               ((uint8_t *)wifi.scan_res) + p->offset, to_send);
+        memcpy(rsp.attr_value.value, (uint8_t *)wifi.results.buf + p->offset,
+               to_send);
         esp_ble_gatts_send_response(bc->gatt_if, bc->conn_id, p->trans_id,
                                     ESP_GATT_OK, &rsp);
         ret = true;
@@ -201,17 +208,11 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
       const struct gatts_write_evt_param *p = &ep->write;
       if (p->handle == mos_wifi_ctrl_ah && p->len == 1) {
         if (p->value[0] == '0') {
-          if (wifi.scan_res) {
-            free(wifi.scan_res);
-            wifi.scan_res = NULL;
-          }
+          mbuf_free(&wifi.results);
           wifi.state = WIFI_STATE_IDLE;
           ret = true;
         } else if (p->value[0] == '1') {
-          if (wifi.scan_res) {
-            free(wifi.scan_res);
-            wifi.scan_res = NULL;
-          }
+          mbuf_free(&wifi.results);
           mgos_wifi_scan(wifi_scan_cb, sd);
           wifi.state = WIFI_STATE_SCANNING;
           ret = true;
@@ -238,6 +239,7 @@ static bool mgos_bt_svc_wifi_ev(struct esp32_bt_session *bs,
 
 bool mgos_bt_service_wifi_init(void) {
   if (mgos_sys_config_get_bt_wifi_svc_enable()) {
+    mbuf_init(&wifi.results, 0);
     mgos_bt_gatts_register_service(mos_wifi_gatt_db,
                                    ARRAY_SIZE(mos_wifi_gatt_db),
                                    mgos_bt_svc_wifi_ev);
