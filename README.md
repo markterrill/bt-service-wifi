@@ -45,7 +45,7 @@ The service defines 2 characteristics (attributes):
         {
           "ssid": "Kent",
           "bssid": "22:cf:30:ce:5c:e9",
-          "auth_mode":"wpa2-psk",
+          "auth_mode": "wpa2-psk",
           "channel": 1,
           "rssi": -90
         }

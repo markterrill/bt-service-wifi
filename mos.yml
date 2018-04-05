@@ -3,6 +3,9 @@ type: lib
 description: WiFi scanning over Bluetooth GATT service support
 version: 1.0
 
+platforms:
+  - esp32
+
 sources:
   - src
 
@@ -15,7 +18,6 @@ config_schema:
 libs:
   - origin: https://github.com/mongoose-os-libs/bt-common
   - origin: https://github.com/mongoose-os-libs/wifi
-
 
 tags:
   - bt

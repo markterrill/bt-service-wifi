@@ -1,12 +1,16 @@
 #include <stdlib.h>
 
 #include "common/cs_dbg.h"
+#include "common/json_utils.h"
+#include "common/mg_str.c"
 
 #include "mgos_hal.h"
 #include "mgos_wifi.h"
 
 #include "esp32_bt_gatts.h"
 #include "rom/ets_sys.h"
+
+#include "mbuf_util.h"
 
 /* Note: UUIDs below ar in reverse, because that's how the ESP wants them. */
 static const esp_bt_uuid_t mos_wifi_svc_uuid = {
@@ -100,48 +104,48 @@ static void wifi_scan_cb(int num_res, struct mgos_wifi_scan_result *res,
 
   struct bt_wifi_svc_data *sd = (struct bt_wifi_svc_data *) arg;
 
-  mbuf_append(&wifi.results, "[", 1);
+  mbuf_append_str(&wifi.results, "[");
+
   for (int i = 0; i < num_res; i++, res++) {
-    char buf[18];
-    mbuf_append(&wifi.results, "{\"ssid\":\"", 9);
-    mbuf_append(&wifi.results, res->ssid, strlen(res->ssid));
-    mbuf_append(&wifi.results, "\",\"bssid\":\"", 11);
-    snprintf(buf, sizeof(buf), MACSTR, MAC2STR(res->bssid));
-    mbuf_append(&wifi.results, buf, strlen(buf));
-    mbuf_append(&wifi.results, "\",\"auth_mode\":\"", 15);
+    struct mg_str ssid = mg_mk_str(res->ssid);
+    char *auth_mode;
+
     switch (res->auth_mode) {
       case MGOS_WIFI_AUTH_MODE_OPEN:
-        mbuf_append(&wifi.results, "open", 4);
+        auth_mode = "open";
         break;
       case MGOS_WIFI_AUTH_MODE_WEP:
-        mbuf_append(&wifi.results, "wep", 3);
+        auth_mode = "wep";
         break;
       case MGOS_WIFI_AUTH_MODE_WPA_PSK:
-        mbuf_append(&wifi.results, "wpa-psk", 7);
+        auth_mode = "wpa-psk";
         break;
       case MGOS_WIFI_AUTH_MODE_WPA2_PSK:
-        mbuf_append(&wifi.results, "wpa2-psk", 8);
+        auth_mode = "wpa2-psk";
         break;
       case MGOS_WIFI_AUTH_MODE_WPA_WPA2_PSK:
-        mbuf_append(&wifi.results, "wpa/wpa2-psk", 12);
+        auth_mode = "wpa/wpa2-psk";
         break;
       case MGOS_WIFI_AUTH_MODE_WPA2_ENTERPRISE:
-        mbuf_append(&wifi.results, "wpa-enterprise", 14);
+        auth_mode = "wpa2-enterprise";
         break;
       default:
+        auth_mode = "unknown";
         break;
     }
-    mbuf_append(&wifi.results, "\",\"channel\":", 12);
-    snprintf(buf, sizeof(buf), "%d", res->channel);
-    mbuf_append(&wifi.results, buf, strlen(buf));
-    mbuf_append(&wifi.results, ",\"rssi\":", 8);
-    snprintf(buf, sizeof(buf), "%d}", res->rssi);
-    mbuf_append(&wifi.results, buf, strlen(buf));
-    if (i + 1 < num_res) {
-        mbuf_append(&wifi.results, ",", 1);
-    }
+
+    mbuf_append_str(&wifi.results, "{\"ssid\":");
+    mg_json_emit_str(&wifi.results, ssid, 1);
+    mbuf_append_fmt(&wifi.results, ",\"bssid\":\"" MACSTR "\"",
+                    MAC2STR(res->bssid));
+    mbuf_append_fmt(&wifi.results, ",\"auth_mode\":\"%s\"", auth_mode);
+    mbuf_append_fmt(&wifi.results, ",\"channel\":%d", res->channel);
+    mbuf_append_fmt(&wifi.results, ",\"rssi\":%d}%s", res->rssi,
+                    (i + 1 < num_res) ? "," : "");
   }
-  mbuf_append(&wifi.results, "]", 1);
+
+  mbuf_append_str(&wifi.results, "]");
+  mbuf_trim(&wifi.results);
 
   wifi.state = WIFI_STATE_RESULTS;
   if (sd->notify) {
