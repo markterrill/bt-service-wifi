@@ -16,7 +16,7 @@ config_schema:
   - ["bt.wifi_svc_enable", "b", true, {title: "Enable the wifi service"}]
 
 libs:
-  - origin: https://github.com/mongoose-os-libs/bt-common
+  - origin: https://github.com/jkent/bt-common
   - origin: https://github.com/mongoose-os-libs/wifi
 
 tags:
